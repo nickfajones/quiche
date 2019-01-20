@@ -52,6 +52,8 @@ struct conn_io {
     int sock;
 
     quiche_conn *conn;
+
+    const char *host;
 };
 
 static void debug_log(const char *line, void *argp) {
@@ -133,8 +135,13 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
     if (quiche_conn_is_established(conn_io->conn) && !req_sent) {
         fprintf(stderr, "connection established\n");
 
-        const static uint8_t r[] = "GET /index.html\r\n";
-        if (quiche_conn_stream_send(conn_io->conn, 4, r, sizeof(r), true) < 0) {
+        int req_len = snprintf((char*)buf, sizeof(buf),
+                               "GET / HTTP/1.1\r\n"
+                               "Host: %s\r\n"
+                               "User-Agent: quiche-c\r\n\r\n",
+                               conn_io->host);
+
+        if (quiche_conn_stream_send(conn_io->conn, 4, buf, req_len, true) < 0) {
             fprintf(stderr, "failed to send HTTP request\n");
             return;
         }
@@ -276,6 +283,7 @@ int main(int argc, char *argv[]) {
 
     conn_io->sock = sock;
     conn_io->conn = conn;
+    conn_io->host = host;
 
     ev_io watcher;
 
