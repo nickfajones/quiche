@@ -80,7 +80,7 @@ fn main() {
     config.load_cert_chain_from_pem_file(args.get_str("--cert")).unwrap();
     config.load_priv_key_from_pem_file(args.get_str("--key")).unwrap();
 
-    config.set_application_protos(&[b"h3-17", b"hq-17", b"http/0.9"]).unwrap();
+    config.set_application_protos(&[b"h3-17", b"hq-17", b"http/1.1"]).unwrap();
 
     config.set_idle_timeout(30);
     config.set_max_packet_size(MAX_DATAGRAM_SIZE as u64);
@@ -269,6 +269,73 @@ fn main() {
 }
 
 fn handle_stream(conn: &mut quiche::Connection, stream: u64, buf: &[u8], root: &str) {
+    let headers = String::from_utf8(buf.to_vec()).unwrap();
+    let mut lines = headers.lines();
+    let line = String::from(lines.next().unwrap());
+
+    let mut request_parts = line.split_whitespace();
+
+    let method = request_parts.next();
+    if method.is_none() ||
+       method != Some("GET") {
+        return; // 400
+    }
+
+    let uri = request_parts.next();
+    if uri.is_none() {
+        return; // 400
+    }
+
+    let protocol = request_parts.next();
+    if protocol.is_none() ||
+       (protocol != Some("HTTP/1.0") &&
+        protocol != Some("HTTP/1.1")) {
+        return; // 400
+    }
+
+    let uri = String::from(uri.unwrap());
+    let uri = std::path::Path::new(&uri);
+
+    let mut path = std::path::PathBuf::from(root);
+    for c in uri.components() {
+        if let std::path::Component::Normal(v) = c {
+            path.push(v)
+        }
+    }
+
+    info!("{} got GET request for {:?} on stream {}",
+          conn.trace_id(), path, stream);
+
+    let data = std::fs::read_to_string(path);
+    if data.is_err() {
+        return; // 500
+    }
+    let data = data.unwrap();
+
+    info!("{} sending response of size {} on stream {}",
+          conn.trace_id(), data.len(), stream);
+
+    let header =
+        format!(concat!("HTTP/1.1 200 OK\r\n",
+                        "Server: quice-rust\r\n",
+                        "Content-Length: {}\r\n",
+                        "\r\n"),
+                data.len());
+
+    info!("{} sending response headers of size {} on stream {}",
+          conn.trace_id(), data.len(), stream);
+
+    if let Err(e) = conn.stream_send(stream, header.as_bytes(), true) {
+        error!("{} stream send failed {:?}", conn.trace_id(), e);
+    }
+
+    info!("{} sending response body of size {} on stream {}",
+          conn.trace_id(), data.len(), stream);
+
+    if let Err(e) = conn.stream_send(stream, data.as_bytes(), true) {
+        error!("{} stream send failed {:?}", conn.trace_id(), e);
+    }
+/*
     if buf.len() > 4 && &buf[..4] == b"GET " {
         let uri = &buf[4..buf.len()];
         let uri = String::from_utf8(uri.to_vec()).unwrap();
@@ -295,6 +362,7 @@ fn handle_stream(conn: &mut quiche::Connection, stream: u64, buf: &[u8], root: &
             error!("{} stream send failed {:?}", conn.trace_id(), e);
         }
     }
+*/
 }
 
 fn mint_token(hdr: &quiche::Header, src: &net::SocketAddr) -> Vec<u8> {

@@ -138,7 +138,8 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
         int req_len = snprintf((char*)buf, sizeof(buf),
                                "GET / HTTP/1.1\r\n"
                                "Host: %s\r\n"
-                               "User-Agent: quiche-c\r\n\r\n",
+                               "User-Agent: quiche-c\r\n"
+                               "\r\n",
                                conn_io->host);
 
         if (quiche_conn_stream_send(conn_io->conn, 4, buf, req_len, true) < 0) {

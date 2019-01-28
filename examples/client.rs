@@ -172,7 +172,8 @@ fn main() {
             } else {
                 format!(concat!("GET {} HTTP/1.1\r\n",
                                 "Host: {}\r\n",
-                                "User-Agent: quiche-rust\r\n\r\n"),
+                                "User-Agent: quiche-rust\r\n",
+                                "\r\n"),
                         url.path(), url.host().unwrap())
             };
 
