@@ -101,6 +101,8 @@ fn main() {
 
     let mut conn = quiche::connect(url.domain(), &scid, &mut config).unwrap();
 
+    debug!("{} connecting to host: {}, scid: {}", conn.trace_id(), url.domain().unwrap(), hex_dump(&scid));
+
     let write = match conn.send(&mut out) {
         Ok(v) => v,
 
@@ -228,4 +230,12 @@ fn main() {
             break;
         }
     }
+}
+
+fn hex_dump(buf: &[u8]) -> String {
+    let vec: Vec<String> = buf.iter()
+                              .map(|b| format!("{:02x}", b))
+                              .collect();
+
+    vec.join("")
 }

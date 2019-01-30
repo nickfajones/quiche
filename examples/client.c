@@ -30,6 +30,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #include <fcntl.h>
 #include <errno.h>
@@ -136,7 +137,7 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
         fprintf(stderr, "connection established\n");
 
         int req_len = snprintf((char*)buf, sizeof(buf),
-                               "GET / HTTP/1.1\r\n"
+                               "GET /index.html HTTP/1.1\r\n"
                                "Host: %s\r\n"
                                "User-Agent: quiche-c\r\n"
                                "\r\n",
@@ -207,8 +208,64 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents) {
 }
 
 int main(int argc, char *argv[]) {
-    const char *host = argv[1];
-    const char *port = argv[2];
+    char *host, *path, *version;
+    int port = -1;
+    int version_val = 0xabababab;
+    int no_verify = 0;
+    int option_index = 0;
+    int c;
+
+    struct option long_options[] = {
+        { "host", required_argument, NULL, 'u' },
+        { "port", required_argument, NULL, 'p' },
+        { "path", required_argument, NULL, 'a' },
+        { "wire-version", no_argument, NULL, 'w' },
+        { "no-verify", no_argument, NULL, 'v' },
+        { 0, 0, 0, 0}
+    };
+
+    char *optstring = "h:p:a:n";
+
+    while (1) {
+        c = getopt_long_only(argc, argv, optstring, long_options, &option_index);
+        if (c == -1)
+            break;
+
+        switch (c) {
+        case 'u':
+            host = optarg;
+            break;
+
+        case 'p':
+            port = atoi(optarg);
+            break;
+
+        case 'a':
+            path = optarg;
+            break;
+
+        case 'w':
+            version = optarg;
+            break;
+
+        case 'v':
+            no_verify = 1;
+            break;
+
+        case 'h':
+        default:
+            printf(
+"Usage: %s [options]\n"
+"Options:\n"
+"  --host HOST             The server's hostname\n"
+"  --port PORT             The server's port\n"
+"  --path PATH             The path to the object to be requested.\n"
+"  --wire-version VERSION  The version number to send to the server [default: (0x)babababa]\n"
+"  --no-verify             Don't verify server's certificate.\n"
+"  --help                  Show this screen.", argv[0]);
+            exit(1);
+        }
+    }
 
     const struct addrinfo hints = {
         .ai_family = PF_UNSPEC,
@@ -245,6 +302,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "failed to create config\n");
         return -1;
     }
+
 
     quiche_config_set_idle_timeout(config, 30);
     quiche_config_set_max_packet_size(config, MAX_DATAGRAM_SIZE);
