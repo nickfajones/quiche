@@ -334,34 +334,6 @@ fn handle_stream(conn: &mut quiche::Connection, stream: u64, buf: &[u8], root: &
     if let Err(e) = conn.stream_send(stream, data.as_bytes(), true) {
         error!("{} stream send failed {:?}", conn.trace_id(), e);
     }
-/*
-    if buf.len() > 4 && &buf[..4] == b"GET " {
-        let uri = &buf[4..buf.len()];
-        let uri = String::from_utf8(uri.to_vec()).unwrap();
-        let uri = String::from(uri.lines().next().unwrap());
-        let uri = std::path::Path::new(&uri);
-        let mut path = std::path::PathBuf::from(root);
-
-        for c in uri.components() {
-            if let std::path::Component::Normal(v) = c {
-                path.push(v)
-            }
-        }
-
-        info!("{} got GET request for {:?} on stream {}",
-              conn.trace_id(), path, stream);
-
-        let data = std::fs::read(path.as_path())
-                    .unwrap_or_else(|_| Vec::from(String::from("Not Found!\r\n")));
-
-        info!("{} sending response of size {} on stream {}",
-              conn.trace_id(), data.len(), stream);
-
-        if let Err(e) = conn.stream_send(stream, &data, true) {
-            error!("{} stream send failed {:?}", conn.trace_id(), e);
-        }
-    }
-*/
 }
 
 fn mint_token(hdr: &quiche::Header, src: &net::SocketAddr) -> Vec<u8> {

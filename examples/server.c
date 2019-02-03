@@ -385,6 +385,9 @@ static void handle_stream(quiche_conn *conn, uint64_t s,
                           uint8_t *buf, size_t len,
                           const char *root) {
     regmatch_t path_match[2];
+    struct stat path_stat;
+    char full_path[256];
+
     if (regexec(&request_regex, (const char*)buf, 2, path_match, 0)) {
         // 400
         return;
@@ -395,13 +398,61 @@ static void handle_stream(quiche_conn *conn, uint64_t s,
         return;
     }
 
-    static const char *resp = "HTTP/1.1 200 OK\r\n"
-                              "Server: quiche-c\r\n"
-                              "Content-Length: 0\r\n"
-                              "\r\n";
+    size_t root_len = strlen(root);
+    size_t path_len = path_match[1].rm_eo - path_match[1].rm_so;
 
-    quiche_conn_stream_send(conn, s, (uint8_t *) resp,
-                            strlen(resp), true);
+    if (root_len + 1 + path_len >= 256) {
+        // 500
+        return;
+    }
+
+    memcpy(full_path, root, root_len);
+    full_path[root_len] = '/';
+    memcpy(full_path + root_len + 1, buf + path_match[1].rm_so, path_len);
+    full_path[root_len + 1 + path_len] = '\0';
+
+    if (stat(full_path, &path_stat)) {
+        // 404
+        return;
+    }
+
+    off_t path_size = path_stat.st_size;
+
+    int path_fd = open(full_path, O_RDONLY);
+    if (path_fd == -1) {
+        // 500
+        return;
+    }
+
+    int res_len = snprintf((char*)buf, 65535,
+                           "HTTP/1.1 200 OK\r\n"
+                           "Server: quiche-c\r\n"
+                           "Content-Length: %ld\r\n"
+                           "\r\n",
+                           path_size);
+    if (res_len >= 65535) {
+        close(path_fd);
+        // 500
+        return;
+    }
+
+    quiche_conn_stream_send(conn, s, buf, res_len, false);
+
+    while (path_size > 0) {
+        off_t to_read = path_size <= 65535 ? path_size : 65535;
+
+        size_t path_read = read(path_fd, buf, to_read);
+        if (path_read < 0) {
+            path_read = 0;
+            path_size = 0;
+        }
+
+        quiche_conn_stream_send(conn, s, buf, path_read, path_size <= 65535);
+
+        path_size -= path_read;
+    }
+
+    close(path_fd);
 }
 
 static void timeout_cb(EV_P_ ev_timer *w, int revents) {
