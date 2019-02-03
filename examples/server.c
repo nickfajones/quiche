@@ -33,10 +33,14 @@
 
 #include <fcntl.h>
 #include <errno.h>
+#include <assert.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+
+#include <getopt.h>
+#include <regex.h>
 
 #include <ev.h>
 #include <uthash.h>
@@ -52,8 +56,12 @@
     sizeof(struct sockaddr_storage) + \
     QUICHE_MAX_CONN_ID_LEN
 
+regex_t request_regex;
+
 struct connections {
     int sock;
+
+    const char *root;
 
     struct conn_io *h;
 };
@@ -76,6 +84,10 @@ struct conn_io {
 static quiche_config *config = NULL;
 
 static struct connections *conns = NULL;
+
+static void handle_stream(quiche_conn *conn, uint64_t s,
+                          uint8_t *buf, size_t len,
+                          const char *root);
 
 static void timeout_cb(EV_P_ ev_timer *w, int revents);
 
@@ -344,11 +356,12 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
                     break;
                 }
 
-                if (fin) {
-                    static const char *resp = "byez\n";
-                    quiche_conn_stream_send(conn_io->conn, s, (uint8_t *) resp,
-                                            5, true);
-                }
+                buf[recv_len] = 0;
+
+                fprintf(stderr, "stream %lu has bytes (fin? %s)\n",
+                        s, fin ? "true" : "false");
+
+                handle_stream(conn_io->conn, s, buf, recv_len, conns->root);
             }
 
             quiche_readable_free(iter);
@@ -366,6 +379,29 @@ static void recv_cb(EV_P_ ev_io *w, int revents) {
             free(conn_io);
         }
     }
+}
+
+static void handle_stream(quiche_conn *conn, uint64_t s,
+                          uint8_t *buf, size_t len,
+                          const char *root) {
+    regmatch_t path_match[2];
+    if (regexec(&request_regex, (const char*)buf, 2, path_match, 0)) {
+        // 400
+        return;
+    }
+
+    if (path_match[1].rm_so == -1) {
+        // 400
+        return;
+    }
+
+    static const char *resp = "HTTP/1.1 200 OK\r\n"
+                              "Server: quiche-c\r\n"
+                              "Content-Length: 0\r\n"
+                              "\r\n";
+
+    quiche_conn_stream_send(conn, s, (uint8_t *) resp,
+                            strlen(resp), true);
 }
 
 static void timeout_cb(EV_P_ ev_timer *w, int revents) {
@@ -389,9 +425,90 @@ static void timeout_cb(EV_P_ ev_timer *w, int revents) {
     }
 }
 
+static void usage(const char *argv0) {
+    printf(
+"Usage: %s [options]\n"
+"Options:\n"
+"  --addr <IP/HOST>        Listen on the given ip address [defaut: 127.0.0.1]\n"
+"  --port <PORT>           Listen on the given port [default: 443].\n"
+"  --name <HOST>           Name of the server [default: quic.tech]\n"
+"  --cert <FILE>           TLS certificate file path [default: examples/cert.crt]\n"
+"  --key <FILE>            TLS certificate key file path [default: examples/cert.key]\n"
+"  --root <DIR>            Root directory [default: examples/root/]\n"
+"  --help                  Show this screen.\n",
+           argv0);
+}
+
 int main(int argc, char *argv[]) {
-    const char *host = argv[1];
-    const char *port = argv[2];
+    char *addr = NULL;
+    char *port = NULL;
+    char *name = NULL;
+    char *cert = NULL;
+    char *key = NULL;
+    char *root = NULL;
+
+    int option_index = 0;
+    int o;
+
+    struct option long_options[] = {
+        { "addr", required_argument, NULL, 'a' },
+        { "port", required_argument, NULL, 'p' },
+        { "name", required_argument, NULL, 'n' },
+        { "cert", required_argument, NULL, 'c' },
+        { "key", required_argument, NULL, 'k' },
+        { "root", required_argument, NULL, 'r' },
+        { "help" , no_argument, NULL, 'h'},
+        { 0, 0, 0, 0}
+    };
+
+    char *optstring = "a:p:n:c:k:r:h";
+
+    while (1) {
+        o = getopt_long_only(argc, argv, optstring, long_options, &option_index);
+        if (o == -1)
+            break;
+
+        switch (o) {
+        case 'a':
+            addr = optarg;
+            break;
+
+        case 'p':
+            port = optarg;
+            break;
+
+        case 'n':
+            name = optarg;
+            break;
+
+        case 'c':
+            cert = optarg;
+            break;
+
+        case 'k':
+            key = optarg;
+            break;
+
+        case 'r':
+            root = optarg;
+            break;
+
+        case 'h':
+        default:
+            usage(argv[0]);
+            return 1;
+        }
+    }
+
+    if (argc == 0) {
+        usage(argv[0]);
+        return 1;
+    }
+
+    (void)name;
+
+    assert(regcomp(&request_regex, "^GET ([^ ]+) HTTP/1\\.1\r\n",
+                   REG_EXTENDED) == 0);
 
     const struct addrinfo hints = {
         .ai_family = PF_UNSPEC,
@@ -402,7 +519,8 @@ int main(int argc, char *argv[]) {
     quiche_enable_debug_logging(debug_log, NULL);
 
     struct addrinfo *local;
-    if (getaddrinfo(host, port, &hints, &local) != 0) {
+    if (getaddrinfo(addr ? addr : "127.0.0.1", port ? port : "443",
+                    &hints, &local) != 0) {
         perror("failed to resolve host");
         return -1;
     }
@@ -429,8 +547,10 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    quiche_config_load_cert_chain_from_pem_file(config, "examples/cert.crt");
-    quiche_config_load_priv_key_from_pem_file(config, "examples/cert.key");
+    quiche_config_load_cert_chain_from_pem_file(config,
+                                                cert?cert:"examples/cert.crt");
+    quiche_config_load_priv_key_from_pem_file(config,
+                                              key ? key : "examples/cert.key");
 
     quiche_config_set_idle_timeout(config, 30);
     quiche_config_set_max_packet_size(config, MAX_DATAGRAM_SIZE);
@@ -438,9 +558,12 @@ int main(int argc, char *argv[]) {
     quiche_config_set_initial_max_stream_data_bidi_local(config, 1000000);
     quiche_config_set_initial_max_stream_data_bidi_remote(config, 1000000);
     quiche_config_set_initial_max_streams_bidi(config, 100);
+    quiche_config_set_initial_max_streams_uni(config, 5);
+    quiche_config_set_disable_migration(config, true);
 
     struct connections c;
     c.sock = sock;
+    c.root = root ? root : "examples/root/";
     c.h = NULL;
 
     conns = &c;
@@ -458,6 +581,8 @@ int main(int argc, char *argv[]) {
     freeaddrinfo(local);
 
     quiche_config_free(config);
+
+    regfree(&request_regex);
 
     return 0;
 }

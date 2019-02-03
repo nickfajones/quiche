@@ -134,8 +134,6 @@ fn main() {
                 }
             };
 
-            trace!("got packet {:?}", hdr);
-
             if hdr.ty == quiche::Type::VersionNegotiation {
                 error!("Version negotiation invalid on the server");
                 continue;
@@ -185,15 +183,16 @@ fn main() {
                     continue;
                 }
 
-                debug!("New connection: dcid={} scid={}",
+                debug!("New connection: dcid={} scid={} lcid={}",
                        hex_dump(&hdr.dcid),
-                       hex_dump(&hdr.scid));
+                       hex_dump(&hdr.scid),
+                       hex_dump(&scid));
 
-                let conn = quiche::accept(&hdr.dcid, odcid, &mut config).unwrap();
+                let conn = quiche::accept(&scid, odcid, &mut config).unwrap();
 
-                connections.insert(hdr.dcid.to_vec(), (src, conn));
+                connections.insert(scid.to_vec(), (src, conn));
 
-                connections.get_mut(&hdr.dcid).unwrap()
+                connections.get_mut(&scid[..]).unwrap()
             } else {
                 connections.get_mut(&hdr.dcid).unwrap()
             };
@@ -317,7 +316,7 @@ fn handle_stream(conn: &mut quiche::Connection, stream: u64, buf: &[u8], root: &
 
     let header =
         format!(concat!("HTTP/1.1 200 OK\r\n",
-                        "Server: quice-rust\r\n",
+                        "Server: quiche-rust\r\n",
                         "Content-Length: {}\r\n",
                         "\r\n"),
                 data.len());

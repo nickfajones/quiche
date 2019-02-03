@@ -30,7 +30,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <unistd.h>
-#include <getopt.h>
 
 #include <fcntl.h>
 #include <errno.h>
@@ -38,6 +37,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+
+#include <getopt.h>
 
 #include <ev.h>
 
@@ -216,12 +217,12 @@ static void usage(const char *argv0) {
     printf(
 "Usage: %s [options]\n"
 "Options:\n"
-"  --host HOST             The server's hostname [required].\n"
-"  --port PORT             The server's port [default: 443].\n"
-"  --path PATH             The path to the object to be requested. [default: /].\n"
-"  --wire-version VERSION  The version number to send to the server [default: (0x)babababa]\n"
-"  --no-verify             Don't verify server's certificate.\n"
-"  --help                  Show this screen.\n",
+"  --host <HOST>             The server's hostname (required).\n"
+"  --port <PORT>             The server's port [default: 443].\n"
+"  --path <URLPATH>          The path to the object to be requested. [default: /].\n"
+"  --wire-version <VERSION>  The version number to send to the server [default: (0x)babababa]\n"
+"  --no-verify               Don't verify server's certificate.\n"
+"  --help                    Show this screen.\n",
            argv0);
 }
 
@@ -246,12 +247,12 @@ int main(int argc, char *argv[]) {
     int no_verify = 0;
 
     int option_index = 0;
-    int c;
+    int o;
 
     struct option long_options[] = {
         { "host", required_argument, NULL, 'u' },
         { "port", required_argument, NULL, 'p' },
-        { "path", required_argument, NULL, 'a' },
+        { "path", required_argument, NULL, 'r' },
         { "wire-version", required_argument, NULL, 'w' },
         { "no-verify", no_argument, NULL, 'v' },
         { "help" , no_argument, NULL, 'h'},
@@ -261,11 +262,11 @@ int main(int argc, char *argv[]) {
     char *optstring = "u:p:a:w:v:h";
 
     while (1) {
-        c = getopt_long_only(argc, argv, optstring, long_options, &option_index);
-        if (c == -1)
+        o = getopt_long_only(argc, argv, optstring, long_options, &option_index);
+        if (o == -1)
             break;
 
-        switch (c) {
+        switch (o) {
         case 'u':
             host = optarg;
             break;
@@ -274,7 +275,7 @@ int main(int argc, char *argv[]) {
             port = optarg;
             break;
 
-        case 'a':
+        case 'r':
             path = optarg;
             break;
 
@@ -289,14 +290,14 @@ int main(int argc, char *argv[]) {
         case 'h':
         default:
             usage(argv[0]);
-            exit(1);
+            return 1;
         }
     }
 
     if (host == NULL) {
         printf("Error: host required\n\n");
         usage(argv[0]);
-        exit(1);
+        return 1;
     }
 
     const struct addrinfo hints = {
