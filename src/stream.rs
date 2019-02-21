@@ -387,7 +387,7 @@ impl RecvBuf {
 
 #[derive(Default)]
 pub struct SendBuf {
-    data: BinaryHeap<RangeBuf>,
+    data: Vec<RangeBuf>,
     off: usize,
     len: usize,
     max_len: usize,
@@ -445,7 +445,7 @@ impl SendBuf {
         out.data = Vec::with_capacity(cmp::min(max_len, self.len()));
 
         let mut out_len = max_len;
-        let mut out_off = self.data.peek().map_or_else(|| 0, RangeBuf::off);
+        let mut out_off = self.data.first().map_or_else(|| 0, RangeBuf::off);
 
         while out_len > 0 &&
             self.ready() &&
@@ -499,7 +499,7 @@ impl SendBuf {
     }
 
     fn off(&self) -> usize {
-        match self.data.peek() {
+        match self.data.first() {
             Some(v) => v.off(),
 
             None => self.off,
