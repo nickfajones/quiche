@@ -35,6 +35,7 @@ use crate::Error;
 use crate::Result;
 
 const MAX_WRITE_SIZE: usize = 1000;
+const MAX_PACKET_SIZE: usize = 1452;
 
 #[derive(Default)]
 pub struct StreamMap {
@@ -382,6 +383,42 @@ impl RecvBuf {
     #[allow(dead_code)]
     fn len(&self) -> usize {
         self.len
+    }
+}
+
+#[derive(Default)]
+struct PacketBuf {
+    packet: Vec<u8>,
+    head: usize,
+    data: usize,
+    tail: usize,
+    end: usize,
+    fin: bool,
+}
+
+impl PacketBuf {
+    pub(crate) fn from(buf: &[u8], fin: bool) -> PacketBuf {
+        PacketBuf {
+            packet: {
+                let mut v: Vec<u8> = Vec::with_capacity(MAX_PACKET_SIZE);
+                v.resize(128, 0);
+                v.extend_from_slice(buf);
+
+                v
+            },
+            head: 128,
+            data: 128,
+            tail: 128 + buf.len(),
+            end: MAX_PACKET_SIZE,
+            fin: fin
+        }
+    }
+
+    fn pull(&mut self, len: usize) -> usize {
+        let len = if len < self.head { len } else { self.head };
+        self.head -= len;
+
+        len
     }
 }
 

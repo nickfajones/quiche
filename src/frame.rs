@@ -318,7 +318,7 @@ impl Frame {
 
                 b.put_varint(data.off() as u64)?;
                 b.put_varint(data.len() as u64)?;
-                b.put_bytes(&data)?;
+                b.put_bytes(data.as_ref())?;
             },
 
             Frame::NewToken { token } => {
