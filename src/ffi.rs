@@ -201,6 +201,17 @@ pub extern fn quiche_config_free(config: *mut Config) {
 }
 
 #[no_mangle]
+pub extern fn quiche_header_is_long(buf: *const u8, buf_len: size_t) -> c_int {
+    if buf_len < 1 {
+        return -1;
+    }
+
+    let buf = unsafe { slice::from_raw_parts(buf, buf_len) };
+
+    Header::is_long(buf[1]) as c_int
+}
+
+#[no_mangle]
 pub extern fn quiche_header_info(
     buf: *mut u8, buf_len: size_t, dcil: size_t, version: *mut u32, ty: *mut u8,
     scid: *mut u8, scid_len: *mut size_t, dcid: *mut u8, dcid_len: *mut size_t,

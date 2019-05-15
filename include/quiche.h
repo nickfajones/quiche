@@ -156,6 +156,9 @@ void quiche_config_set_disable_migration(quiche_config *config, bool v);
 // Frees the config object.
 void quiche_config_free(quiche_config *config);
 
+// Indicates whether a packet in |buf| is a long or short header type
+int quiche_header_is_long(const uint8_t *buf, size_t buf_len);
+
 // Extracts version, type, source / destination connection ID and address
 // verification token from the packet in |buf|.
 int quiche_header_info(const uint8_t *buf, size_t buf_len, size_t dcil,
